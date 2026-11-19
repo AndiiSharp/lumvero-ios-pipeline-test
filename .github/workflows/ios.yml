@@ -193,6 +193,12 @@ jobs:
                       os.replace(src, dest)
                       print("screenshot:", dest_name)
           PY
+            # XCTest speichert Querformat um 90° im Uhrzeigersinn. 270° im Uhrzeigersinn
+            # dreht die PNG zurück, damit das Bild im Querformat und aufrecht liegt.
+            for shot in "$OUT/screenshots"/*querformat*.png; do
+              [ -f "$shot" ] || continue
+              sips -r 270 "$shot" >/dev/null
+            done
             ls -la "$OUT/screenshots"
             (cd results && ditto -c -k --keepParent "${{ matrix.device }}.xcresult" "../$OUT/${{ matrix.device }}.xcresult.zip")
           fi

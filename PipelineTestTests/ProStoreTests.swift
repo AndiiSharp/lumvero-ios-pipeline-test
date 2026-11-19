@@ -84,9 +84,17 @@ final class ProStoreTests: XCTestCase {
         XCTAssertTrue(store.isPro)
         let transaction = try XCTUnwrap(session.allTransactions().first { $0.productIdentifier == ProStore.productID })
         try session.refundTransaction(identifier: transaction.identifier)
-        try await Task.sleep(nanoseconds: 500_000_000)
-        await store.refreshEntitlements()
-        XCTAssertFalse(store.isPro, "Nach Erstattung darf Pro nicht mehr aktiv sein")
+        // Die Erstattung kommt asynchron in currentEntitlements an.
+        var revoked = false
+        for _ in 0..<10 {
+            try await Task.sleep(nanoseconds: 500_000_000)
+            await store.refreshEntitlements()
+            if !store.isPro {
+                revoked = true
+                break
+            }
+        }
+        XCTAssertTrue(revoked, "Nach Erstattung darf Pro nicht mehr aktiv sein")
     }
 
     func testNoPurchaseMeansFreeVersion() async throws {
