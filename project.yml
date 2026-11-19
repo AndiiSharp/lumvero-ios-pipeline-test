@@ -19,6 +19,9 @@ targets:
     platform: iOS
     sources:
       - path: PipelineTest
+      # SKTestSession sucht die Konfiguration im App-Bundle, nicht nur im Test-Bundle.
+      - path: StoreKit/Products.storekit
+        buildPhase: resources
     info:
       path: PipelineTest/Info.plist
       properties:
@@ -40,7 +43,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: digital.lumvero.pipelinetest
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
   PipelineTestTests:
     type: bundle.unit-test
     platform: iOS
@@ -79,6 +81,7 @@ schemes:
     test:
       config: Debug
       gatherCoverageData: false
+      storeKitConfiguration: StoreKit/Products.storekit
       targets:
         - PipelineTestTests
         - PipelineTestUITests

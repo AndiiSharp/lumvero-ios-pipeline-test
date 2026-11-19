@@ -10,10 +10,26 @@ final class ProStoreTests: XCTestCase {
     private var session: SKTestSession!
 
     override func setUp() async throws {
-        session = try SKTestSession(configurationFileNamed: "Products")
+        session = try makeSession()
         session.resetToDefaultState()
         session.disableDialogs = true
         session.clearTransactions()
+    }
+
+    /// `configurationFileNamed` sucht nur im App-Bundle und bricht auf dem
+    /// Test-Host stillschweigend auf eine leere Produktliste aus. Die URL aus
+    /// dem Bundle, das die Datei wirklich enthält, lädt die Konfiguration.
+    private func makeSession() throws -> SKTestSession {
+        let bundles = [Bundle(for: ProStoreTests.self), Bundle.main]
+        for bundle in bundles {
+            let url = bundle.url(forResource: "Products", withExtension: "storekit")
+                ?? bundle.url(forResource: "Products", withExtension: "storekit", subdirectory: "StoreKit")
+            if let url {
+                return try SKTestSession(contentsOf: url)
+            }
+        }
+        XCTFail("Products.storekit weder im Test- noch im App-Bundle")
+        throw ProError.productUnavailable
     }
 
     override func tearDown() async throws {
@@ -33,7 +49,7 @@ final class ProStoreTests: XCTestCase {
 
     func testProductLoadsFromConfiguration() async throws {
         let store = try await loadedStore()
-        let product = try XCTUnwrap(store.product)
+        let product = try XCTUnwrap(store.product, store.lastError ?? "Produkt nicht geladen")
         XCTAssertEqual(product.id, ProStore.productID)
         XCTAssertEqual(product.type, .nonConsumable)
         XCTAssertEqual(product.price, Decimal(string: "4.99"))
@@ -68,9 +84,17 @@ final class ProStoreTests: XCTestCase {
         XCTAssertTrue(store.isPro)
         let transaction = try XCTUnwrap(session.allTransactions().first { $0.productIdentifier == ProStore.productID })
         try session.refundTransaction(identifier: transaction.identifier)
-        try await Task.sleep(nanoseconds: 500_000_000)
-        await store.refreshEntitlements()
-        XCTAssertFalse(store.isPro, "Nach Erstattung darf Pro nicht mehr aktiv sein")
+        // Die Erstattung kommt asynchron in currentEntitlements an.
+        var revoked = false
+        for _ in 0..<10 {
+            try await Task.sleep(nanoseconds: 500_000_000)
+            await store.refreshEntitlements()
+            if !store.isPro {
+                revoked = true
+                break
+            }
+        }
+        XCTAssertTrue(revoked, "Nach Erstattung darf Pro nicht mehr aktiv sein")
     }
 
     func testNoPurchaseMeansFreeVersion() async throws {
