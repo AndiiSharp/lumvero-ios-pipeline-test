@@ -1,0 +1,38 @@
+{
+  "identifier" : "5B1C2D3E",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "4.99",
+      "familyShareable" : false,
+      "internalID" : "6A7B8C9D",
+      "localizations" : [
+        {
+          "description" : "Test-Freischaltung ohne Notizlimit (kein echtes Produkt)",
+          "displayName" : "Pro (Test)",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "digital.lumvero.pipelinetest.pro",
+      "referenceName" : "Pro Test",
+      "type" : "NonConsumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

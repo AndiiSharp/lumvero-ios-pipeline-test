@@ -1,0 +1,86 @@
+name: PipelineTest
+options:
+  bundleIdPrefix: digital.lumvero
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    IPHONEOS_DEPLOYMENT_TARGET: "17.0"
+    TARGETED_DEVICE_FAMILY: "1,2"
+    CODE_SIGN_STYLE: Automatic
+    DEVELOPMENT_TEAM: ""
+targets:
+  PipelineTest:
+    type: application
+    platform: iOS
+    sources:
+      - path: PipelineTest
+    info:
+      path: PipelineTest/Info.plist
+      properties:
+        CFBundleDisplayName: PipelineTest
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        UILaunchScreen: {}
+        UIApplicationSupportsIndirectInputEvents: true
+        ITSAppUsesNonExemptEncryption: false
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        UISupportedInterfaceOrientations~ipad:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationPortraitUpsideDown
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: digital.lumvero.pipelinetest
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+  PipelineTestTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: PipelineTestTests
+      - path: StoreKit/Products.storekit
+        buildPhase: resources
+    dependencies:
+      - target: PipelineTest
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: digital.lumvero.pipelinetest.tests
+        GENERATE_INFOPLIST_FILE: YES
+  PipelineTestUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: PipelineTestUITests
+    dependencies:
+      - target: PipelineTest
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: digital.lumvero.pipelinetest.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: PipelineTest
+schemes:
+  PipelineTest:
+    build:
+      targets:
+        PipelineTest: all
+        PipelineTestTests: [test]
+        PipelineTestUITests: [test]
+    run:
+      config: Debug
+      storeKitConfiguration: StoreKit/Products.storekit
+    test:
+      config: Debug
+      gatherCoverageData: false
+      targets:
+        - PipelineTestTests
+        - PipelineTestUITests
+    archive:
+      config: Release
