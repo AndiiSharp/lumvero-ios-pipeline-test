@@ -156,7 +156,21 @@ final class PipelineTestUITests: XCTestCase {
         let exp = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         XCTAssertEqual(XCTWaiter().wait(for: [exp], timeout: 10), .completed, "Querformat nicht übernommen: \(window.frame)")
         addNote(app, "Querformat")
-        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        // XCUIScreen liefert das Querformat um 90° im Uhrzeigersinn gedreht.
+        // Die Pixel werden hier zurückgedreht, damit die PNG aufrecht liegt.
+        let source = XCUIScreen.main.screenshot().image
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = source.scale
+        let renderer = UIGraphicsImageRenderer(
+            size: CGSize(width: source.size.height, height: source.size.width),
+            format: format
+        )
+        let upright = renderer.image { context in
+            context.cgContext.translateBy(x: 0, y: source.size.width)
+            context.cgContext.rotate(by: -.pi / 2)
+            source.draw(in: CGRect(origin: .zero, size: source.size))
+        }
+        let attachment = XCTAttachment(image: upright)
         attachment.name = "\(idiom)-06-querformat"
         attachment.lifetime = .keepAlways
         add(attachment)
