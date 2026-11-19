@@ -19,6 +19,9 @@ targets:
     platform: iOS
     sources:
       - path: PipelineTest
+      # SKTestSession sucht die Konfiguration im App-Bundle, nicht nur im Test-Bundle.
+      - path: StoreKit/Products.storekit
+        buildPhase: resources
     info:
       path: PipelineTest/Info.plist
       properties:
@@ -78,6 +81,7 @@ schemes:
     test:
       config: Debug
       gatherCoverageData: false
+      storeKitConfiguration: StoreKit/Products.storekit
       targets:
         - PipelineTestTests
         - PipelineTestUITests

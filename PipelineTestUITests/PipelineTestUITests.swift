@@ -36,12 +36,35 @@ final class PipelineTestUITests: XCTestCase {
         return f
     }
 
+    /// Zeile, Zelle oder Button – im Split-View hängt der Text nicht immer an einem StaticText.
+    private func labeled(_ app: XCUIApplication, _ text: String) -> XCUIElement {
+        let pred = NSPredicate(format: "label == %@ AND elementType != %ld AND elementType != %ld",
+                               text,
+                               XCUIElement.ElementType.textField.rawValue,
+                               XCUIElement.ElementType.secureTextField.rawValue)
+        return app.descendants(matching: .any).matching(pred).firstMatch
+    }
+
+    /// Bestätigt die Eingabe. Im iPad-Split-View verdeckt die Tastatur den Button;
+    /// Return löst dasselbe `onSubmit` aus wie „Hinzufügen“.
+    private func commitAdd(_ app: XCUIApplication, _ text: String, field f: XCUIElement) {
+        let button = app.buttons["addButton"]
+        if button.isHittable {
+            button.tap()
+        } else {
+            f.typeText("\n")
+        }
+        if !labeled(app, text).waitForExistence(timeout: 2) {
+            f.typeText("\n")
+        }
+        XCTAssertTrue(labeled(app, text).waitForExistence(timeout: 5), "Notiz '\(text)' fehlt in der Liste")
+    }
+
     private func addNote(_ app: XCUIApplication, _ text: String) {
         let f = field(app)
         f.tap()
         f.typeText(text)
-        app.buttons["addButton"].tap()
-        XCTAssertTrue(app.staticTexts[text].firstMatch.waitForExistence(timeout: 5), "Notiz '\(text)' fehlt in der Liste")
+        commitAdd(app, text, field: f)
     }
 
     private func reveal(_ element: XCUIElement, in app: XCUIApplication) {
@@ -71,10 +94,9 @@ final class PipelineTestUITests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 10), "Bildschirmtastatur nicht sichtbar")
         f.typeText("Einkauf Milch")
         shot(app, "02-tastatur")
-        app.buttons["addButton"].tap()
+        commitAdd(app, "Einkauf Milch", field: f)
 
-        let row = app.staticTexts["Einkauf Milch"].firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 5))
+        let row = labeled(app, "Einkauf Milch")
         row.tap()
         let detail = app.staticTexts["detailText"]
         XCTAssertTrue(detail.waitForExistence(timeout: 5), "Detailansicht nicht geöffnet")
@@ -104,7 +126,7 @@ final class PipelineTestUITests: XCTestCase {
 
         let relaunched = launch(reset: false)
         _ = field(relaunched)
-        XCTAssertTrue(relaunched.staticTexts["Persistenz-Test"].firstMatch.waitForExistence(timeout: 10),
+        XCTAssertTrue(labeled(relaunched, "Persistenz-Test").waitForExistence(timeout: 10),
                       "Notiz nach Neustart nicht wiederhergestellt")
         shot(relaunched, "04-nach-neustart")
     }
@@ -115,8 +137,7 @@ final class PipelineTestUITests: XCTestCase {
         shot(app, "05-grosse-schrift")
         f.tap()
         f.typeText("Groß")
-        app.buttons["addButton"].tap()
-        XCTAssertTrue(app.staticTexts["Groß"].firstMatch.waitForExistence(timeout: 5))
+        commitAdd(app, "Groß", field: f)
         let info = app.staticTexts["layoutInfo"]
         reveal(info, in: app)
         XCTAssertTrue(info.waitForExistence(timeout: 5))
@@ -142,7 +163,12 @@ final class PipelineTestUITests: XCTestCase {
         let f = field(app)
         f.tap()
         f.typeText("Vierte")
-        app.buttons["addButton"].tap()
+        let button = app.buttons["addButton"]
+        if button.isHittable {
+            button.tap()
+        } else {
+            f.typeText("\n")
+        }
         let error = app.staticTexts["errorLabel"]
         XCTAssertTrue(error.waitForExistence(timeout: 5))
         XCTAssertTrue(error.label.contains("Gratis-Version"), error.label)

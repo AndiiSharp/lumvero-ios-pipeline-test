@@ -60,7 +60,8 @@ struct NoteListView: View {
                 .submitLabel(.done)
                 .onSubmit(add)
                 .accessibilityIdentifier("noteField")
-            Button("Hinzufügen", action: add)
+            Button("Hinzufügen", action: commitAndAdd)
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("addButton")
             if let errorText {
                 Text(errorText)
@@ -91,9 +92,11 @@ struct NoteListView: View {
                 Button(pro.product.map { "Pro freischalten – \($0.displayPrice)" } ?? "Pro freischalten") {
                     Task { await buy() }
                 }
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("buyPro")
             }
             Button("Käufe wiederherstellen") { Task { await restore() } }
+                .buttonStyle(.borderless)
                 .accessibilityIdentifier("restorePurchases")
             if let message = pro.lastError {
                 Text(message).font(.footnote).foregroundStyle(.secondary)
@@ -103,6 +106,17 @@ struct NoteListView: View {
             Text("Layout: \(layout) · Schrift: \(typeSize.isAccessibilitySize ? "groß" : "normal")")
                 .font(.footnote)
                 .accessibilityIdentifier("layoutInfo")
+        }
+    }
+
+    /// Der Tipp auf den Button im `List` gibt den Fokus ab. Ohne einen Laufloop
+    /// liest `add()` den TextField-Wert, bevor SwiftUI die Bindung übernommen hat
+    /// (auf dem iPad bleibt die Notiz dann leer).
+    private func commitAndAdd() {
+        fieldFocused = false
+        Task { @MainActor in
+            await Task.yield()
+            add()
         }
     }
 
