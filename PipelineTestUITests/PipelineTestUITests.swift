@@ -146,15 +146,20 @@ final class PipelineTestUITests: XCTestCase {
     }
 
     func test06_LandscapeLayout() {
+        // Vor dem Start drehen, sonst fotografiert XCTest ein hochformatiges
+        // Framebuffer und legt es gedreht in ein halb schwarzes Querformat-Bild.
+        XCUIDevice.shared.orientation = .landscapeLeft
         let app = launch()
         _ = field(app)
-        XCUIDevice.shared.orientation = .landscapeLeft
         let window = app.windows.firstMatch
         let predicate = NSPredicate { _, _ in window.frame.width > window.frame.height }
         let exp = XCTNSPredicateExpectation(predicate: predicate, object: nil)
         XCTAssertEqual(XCTWaiter().wait(for: [exp], timeout: 10), .completed, "Querformat nicht übernommen: \(window.frame)")
         addNote(app, "Querformat")
-        shot(app, "06-querformat")
+        let attachment = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+        attachment.name = "\(idiom)-06-querformat"
+        attachment.lifetime = .keepAlways
+        add(attachment)
     }
 
     func test07_FreeLimitShowsProHint() {
