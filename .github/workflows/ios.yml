@@ -1,0 +1,259 @@
+name: iOS Pipeline Test
+
+# Technischer Test einer iOS-Build-Pipeline – keine App, keine Veröffentlichung.
+# Öffentliches Repo + Standard-Runner (macos-26) = laut GitHub-Doku kostenlos.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SCHEME: PipelineTest
+  PROJECT: PipelineTest.xcodeproj
+
+jobs:
+  build:
+    name: Build (generic iOS, unsigniert) + Archiv
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Umgebung protokollieren
+        run: |
+          echo "ImageOS=${ImageOS:-}"
+          echo "ImageVersion=${ImageVersion:-}"
+          sw_vers
+          xcodebuild -version
+          xcode-select -p
+          xcrun simctl list runtimes
+
+      - name: Projekt mit XcodeGen erzeugen
+        run: |
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          export HOMEBREW_NO_ENV_HINTS=1
+          brew install xcodegen
+          xcodegen --version
+          xcodegen generate
+
+      - name: Build für generic/platform=iOS (ohne Signierung)
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | xcbeautify --renderer github-actions
+
+      - name: Archiv erstellen (ohne Signierung, nur Machbarkeitsnachweis)
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/PipelineTest.xcarchive \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            | xcbeautify --renderer github-actions
+          ls -la build/PipelineTest.xcarchive/Products/Applications/
+          /usr/libexec/PlistBuddy -c 'Print :MinimumOSVersion' build/PipelineTest.xcarchive/Products/Applications/PipelineTest.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :UIDeviceFamily' build/PipelineTest.xcarchive/Products/Applications/PipelineTest.app/Info.plist
+          lipo -info build/PipelineTest.xcarchive/Products/Applications/PipelineTest.app/PipelineTest
+
+  test:
+    name: Tests (${{ matrix.device }}-Simulator)
+    runs-on: macos-26
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        device: [iphone, ipad]
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Projekt mit XcodeGen erzeugen
+        run: |
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          export HOMEBREW_NO_ENV_HINTS=1
+          brew install xcodegen
+          xcodegen generate
+
+      - name: Simulator dynamisch wählen
+        id: sim
+        run: |
+          xcrun simctl list devices available
+          IFS='|' read -r UDID NAME OS <<< "$(python3 scripts/pick-simulator.py ${{ matrix.device }})"
+          echo "Gewählt: $NAME (iOS $OS) $UDID"
+          echo "udid=$UDID" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "os=$OS" >> "$GITHUB_OUTPUT"
+          # Hardware-Tastatur trennen, damit die Bildschirmtastatur erscheint.
+          # Neuere Simulatoren werten das zusätzlich pro Gerät aus.
+          defaults write com.apple.iphonesimulator ConnectHardwareKeyboard -bool false
+          python3 - "$UDID" <<'PY'
+          import os, plistlib, sys
+          udid = sys.argv[1]
+          path = os.path.expanduser("~/Library/Preferences/com.apple.iphonesimulator.plist")
+          data = {}
+          if os.path.exists(path):
+              with open(path, "rb") as fh:
+                  data = plistlib.load(fh)
+          devices = data.setdefault("DevicePreferences", {})
+          device = devices.setdefault(udid, {})
+          device["ConnectHardwareKeyboard"] = False
+          os.makedirs(os.path.dirname(path), exist_ok=True)
+          with open(path, "wb") as fh:
+              plistlib.dump(data, fh)
+          print("ConnectHardwareKeyboard=false für", udid)
+          PY
+          killall Simulator >/dev/null 2>&1 || true
+
+      - name: Simulator starten
+        run: |
+          xcrun simctl boot "${{ steps.sim.outputs.udid }}" || true
+          xcrun simctl bootstatus "${{ steps.sim.outputs.udid }}" -b
+
+      - name: xcodebuild test
+        run: |
+          set -o pipefail
+          mkdir -p results
+          xcodebuild test \
+            -project "$PROJECT" -scheme "$SCHEME" \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -resultBundlePath "results/${{ matrix.device }}.xcresult" \
+            -test-timeouts-enabled YES \
+            -default-test-execution-time-allowance 180 \
+            | xcbeautify --renderer github-actions
+
+      - name: Ergebnisse und Screenshots exportieren
+        if: always()
+        run: |
+          R="results/${{ matrix.device }}.xcresult"
+          OUT="export/${{ matrix.device }}"
+          mkdir -p "$OUT/screenshots"
+          if [ -d "$R" ]; then
+            xcrun xcresulttool get test-results summary --path "$R" --format json > "$OUT/summary.json" || true
+            xcrun xcresulttool get test-results tests --path "$R" --format json > "$OUT/tests.json" || true
+            xcrun xcresulttool export attachments --path "$R" --output-path "$OUT/screenshots" || true
+            # Dateinamen lesbar machen (manifest.json enthält die Zuordnung)
+            python3 - "$OUT/screenshots" <<'PY'
+          import json, os, sys
+          d = sys.argv[1]
+          mf = os.path.join(d, "manifest.json")
+          if not os.path.exists(mf):
+              print("kein manifest.json")
+              sys.exit(0)
+          raw = json.load(open(mf))
+          tests = raw if isinstance(raw, list) else []
+          if isinstance(raw, dict):
+              for key in ("tests", "testAttachments", "attachments"):
+                  if isinstance(raw.get(key), list):
+                      tests = raw[key]
+                      break
+          print("manifest-eintraege:", len(tests))
+          for test in tests:
+              if not isinstance(test, dict):
+                  continue
+              for a in test.get("attachments", []):
+                  src_name = a.get("exportedFileName")
+                  if not src_name:
+                      continue
+                  src = os.path.join(d, src_name)
+                  name = a.get("suggestedHumanReadableName") or src_name
+                  name = name.replace("/", "_").replace(":", "_")
+                  if not name.lower().endswith(".png"):
+                      name += ".png"
+                  dest = os.path.join(d, name)
+                  if os.path.exists(src) and os.path.abspath(src) != os.path.abspath(dest):
+                      os.replace(src, dest)
+                      print("screenshot:", name)
+          PY
+            ls -la "$OUT/screenshots"
+            (cd results && ditto -c -k --keepParent "${{ matrix.device }}.xcresult" "../$OUT/${{ matrix.device }}.xcresult.zip")
+          fi
+          {
+            echo "device=${{ steps.sim.outputs.name }}"
+            echo "ios=${{ steps.sim.outputs.os }}"
+            echo "udid=${{ steps.sim.outputs.udid }}"
+            echo "imageOS=${ImageOS:-}"
+            echo "imageVersion=${ImageVersion:-}"
+            xcodebuild -version | tr '\n' ' '; echo
+            sw_vers -productVersion
+          } > "$OUT/environment.txt"
+          cat "$OUT/environment.txt"
+          cat "$OUT/summary.json" || true
+
+      - name: Artefakte hochladen
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-results-${{ matrix.device }}
+          path: export/${{ matrix.device }}
+          retention-days: 14
+
+  # ---------------------------------------------------------------------------
+  # VORBEREITET, ABER DEAKTIVIERT: Signierter Build + Upload zu App Store Connect
+  # Voraussetzungen (erst nach aktiver Apple-Developer-Mitgliedschaft):
+  #   Secrets (Repo > Settings > Secrets and variables > Actions):
+  #     ASC_KEY_ID, ASC_ISSUER_ID, ASC_KEY_P8 (Inhalt der .p8-Datei, Rolle "App Manager")
+  #     DIST_CERT_P12_BASE64, DIST_CERT_PASSWORD (Apple Distribution-Zertifikat)
+  #     PROVISIONING_PROFILE_BASE64 (App-Store-Profil für die echte Bundle-ID)
+  #     APPLE_TEAM_ID
+  #   Für echte Apps: private Repos bevorzugen oder Secrets nur in Environments
+  #   mit Freigabe-Regel verwenden. Dieser Job ist bewusst mit `if: false` gesperrt.
+  # ---------------------------------------------------------------------------
+  sign-and-upload:
+    name: Signieren + Upload (deaktiviert)
+    if: false
+    needs: [build, test]
+    runs-on: macos-26
+    environment: app-store-upload
+    steps:
+      - uses: actions/checkout@v7
+      - name: Projekt erzeugen
+        run: brew install xcodegen && xcodegen generate
+      - name: Zertifikat und Profil in temporären Schlüsselbund
+        env:
+          DIST_CERT_P12_BASE64: ${{ secrets.DIST_CERT_P12_BASE64 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+          PROVISIONING_PROFILE_BASE64: ${{ secrets.PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"; KCPW="$(uuidgen)"
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          echo "$DIST_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -P "$DIST_CERT_PASSWORD" -A -t cert -f pkcs12 -k "$KC"
+          security list-keychain -d user -s "$KC"
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          echo "$PROVISIONING_PROFILE_BASE64" | base64 --decode > ~/Library/MobileDevice/Provisioning\ Profiles/app.mobileprovision
+      - name: Archivieren (signiert) und IPA exportieren
+        env:
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          xcodebuild archive -project "$PROJECT" -scheme "$SCHEME" -configuration Release \
+            -destination 'generic/platform=iOS' -archivePath build/App.xcarchive \
+            DEVELOPMENT_TEAM="$APPLE_TEAM_ID" CODE_SIGN_STYLE=Manual
+          # ExportOptions.plist (method: app-store-connect, teamID, provisioningProfiles) wird später ergänzt
+          xcodebuild -exportArchive -archivePath build/App.xcarchive \
+            -exportOptionsPlist ExportOptions.plist -exportPath build/export
+      - name: Upload zu App Store Connect (TestFlight)
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          xcrun altool --upload-app -f build/export/*.ipa -t ios \
+            --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"

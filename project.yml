@@ -40,7 +40,6 @@ targets:
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: digital.lumvero.pipelinetest
-        ASSETCATALOG_COMPILER_APPICON_NAME: ""
   PipelineTestTests:
     type: bundle.unit-test
     platform: iOS

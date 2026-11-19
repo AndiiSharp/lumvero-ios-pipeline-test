@@ -1,3 +1,4 @@
+import UIKit
 import XCTest
 
 /// UI-Tests auf iPhone- und iPad-Simulator. Screenshots werden als XCTAttachment
